@@ -1,0 +1,27 @@
+{
+  "extractLocationConfig":{
+    ".*IntelliJ.*":{
+      "extractRegex":"\\[[^\\[]+\\]",
+      "trimBegin":2,
+      "trimEnd":1
+    }
+  },
+  "extractProjectNameConfig":{
+    ".*IntelliJ.*":{
+      "extractRegex":"\\[[^\\[]+\\]?(\\[[^\\[]+\\])",
+      "trimBegin":1,
+      "trimEnd":1,
+      "forceGroupIndex":1
+    }
+  },
+  "trackerBin":"/home/alex/Downloads/thyme-linux-386",
+  "trackerArgs":"track",
+  "gitBin":"git",
+  "gitGetBranchArgs":"rev-parse --abbrev-ref HEAD",
+  "homeFolder":"/home/alex",
+  "outFile":"/home/alex/timetrack/track.json",
+  "snapshotsFile":"/home/alex/timetrack/snapshots.json",
+  "statsOutputFile":"/home/alex/timetrack/stats.json",
+  "snapshotIntervalInSeconds":"5"
+  
+}

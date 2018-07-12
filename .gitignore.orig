@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 .classpath
 .project
 .ht*
@@ -13,6 +14,7 @@ target/*
 *.log
 /pdfcorrection.ipr
 /pdfcorrection.iws
+=======
 # Compiled class file
 *.class
 
@@ -36,3 +38,4 @@ target/*
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
+>>>>>>> 877b58358e5abcbccea40943de51db839ad6a3fa

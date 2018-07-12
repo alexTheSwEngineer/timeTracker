@@ -6,121 +6,119 @@ package com.atr.timetracker;
  *
  */
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import com.atr.timetracker.config.Config;
+import com.atr.timetracker.dto.Stat;
+import com.atr.timetracker.dto.Window;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.searchink.executils.ExecUtils;
-import javaslang.control.Try;
-import lombok.Getter;
-import lombok.Setter;
-import lombok.experimental.Accessors;
+import org.springframework.core.io.ClassPathResource;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.HashMap;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
-import java.util.regex.Pattern;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
-import static java.util.Optional.ofNullable;
+import static java.util.Comparator.comparing;
 
 public class Main {
-    public static void main(String[] args) throws IOException {
-        Map<String, ExtractConfig> regexes = new HashMap<>();
-        regexes.put(".*IntelliJ.*", new ExtractConfig().setExtractRegex("\\[[^\\[]+\\]")
-                .setTrimBegin(2)
-                .setTrimEnd(1));
-        String trackerBinary = "/home/alex/Downloads/thyme-linux-386";
+    public static void main(String[] args) throws IOException, ExecutionException, InterruptedException {
+
         ObjectMapper objectMapper = new ObjectMapper();
-        String binArgs = "track";
+        Config config = readConfig(args, objectMapper);
+        SnapshotParser parser = new SnapshotParser(objectMapper);
+        StatisticsParser statisticsParser = new StatisticsParser(objectMapper);
+        AtomicBoolean shouldContinueTracking = new AtomicBoolean(true);
 
-        String snapshotAsString = ExecUtils.execute(trackerBinary, binArgs);
-        Snapshot snapshot = objectMapper.readValue(snapshotAsString, Snapshot.class);
-        String activeId = ofNullable(snapshot)
-                .map(x -> x.getActive())
-                .orElse("");
-        Window activeWindow = ofNullable(snapshot)
-                .map(x -> x.getWindows())
-                .orElse(new ArrayList<>())
-                .stream()
-                .filter(x -> activeId.equals(x.getID()))
-                .findAny()
-                .orElse(new Window());
+        CompletableFuture<List<Stat>> trackingJob = CompletableFuture.supplyAsync(() -> {
+            try {
+                blockingTrackTimeToOutputFile(config, parser, shouldContinueTracking);
+                return statisticsParser.parseFile(config.getOutFile(), config.getSnapshotIntervalInSeconds());
+
+            } catch (InterruptedException | IOException e) {
+                e.printStackTrace(System.out);
+                System.out.println("End the program");
+                throw new RuntimeException(e);
+            }
+        });
 
 
-        ExtractConfig extractConfig = regexes.entrySet().stream()
-                .filter(x -> Try.of(() -> Pattern.compile(x.getKey()))
-                        .mapTry(p -> p.matcher(activeWindow.getName()))
-                        .mapTry(m -> m.find())
-                        .getOrElse(false))
-                .map(x -> x.getValue())
-                .findAny()
-                .orElse(new ExtractConfig());
+        System.out.println("Press any key to end tracking:");
+        System.in.read();
+        System.out.println("Waiting for the last snapshot to finish......");
 
-        String location = extractConfig.extract(activeWindow.getName());
-        File fileLocation = new File(location, ".git");
-        File homeDir = new File(System.getProperty("user.home"));
-        File absoluteLocation = new File(homeDir,fileLocation.getPath());
-        if (!absoluteLocation.exists()) {
-            return;
+        shouldContinueTracking.set(false);
+        List<Stat> stats = trackingJob.get();
+
+        System.out.println("Computing stats...........");
+        String resultAsString = formatResults(objectMapper, stats);
+
+        System.out.print(resultAsString);
+        if (config.getStatsOutputFile() != null && !"".equals(config.getSnapshotsFile()) && new File(config.getSnapshotsFile()).exists()) {
+            Files.write(Paths.get(config.getStatsOutputFile()), Arrays.asList(resultAsString));
         }
-        String aaa = "git --git-dir $activeDir/.git rev-parse --abbrev-ref HEAD";
-        String branch = ExecUtils.execute("git", "--git-dir " + absoluteLocation.getAbsolutePath() + " rev-parse --abbrev-ref HEAD");
-        activeWindow.setBranch(branch);
-        activeWindow.setDir(location);
 
-        try (FileWriter fw = new FileWriter("/home/alex/a.txt", true);
+    }
+
+    private static String formatResults(ObjectMapper objectMapper, List<Stat> stats) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        stats.stream()
+                .sorted(comparing(x -> x.getDir() == null ? "" : x.getDir()))
+                .forEach(x -> {
+                    try {
+                        pw.println(objectMapper.writeValueAsString(x));
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                        return;
+                    }
+                });
+
+
+        pw.flush();
+        return sw.toString();
+    }
+
+    private static void blockingTrackTimeToOutputFile(Config config, SnapshotParser parser, AtomicBoolean shouldContinue) throws InterruptedException, IOException {
+        try (FileWriter fw = new FileWriter(config.getOutFile(), true);
              BufferedWriter bw = new BufferedWriter(fw);
-             PrintWriter out = new PrintWriter(bw)) {
-            out.println(objectMapper.writeValueAsString(activeWindow));
-            //more code
-        } catch (IOException e) {
-            //exception handling left as an exercise for the reader
-        }
-
-    }
-
-
-    @Getter
-    @Setter
-    public static class Snapshot {
-        @JsonProperty("Active")
-        private String active = "";
-        @JsonProperty("Time")
-        private String timeStamp = "";
-        @JsonProperty("Windows")
-        private List<Window> windows = new ArrayList<>();
-        @JsonProperty("Visible")
-        private List<Long> visibleIds = new ArrayList<>();
-    }
-
-    @Getter
-    @Setter
-    public static class Window {
-        @JsonProperty("ID")
-        public String ID = "";
-        @JsonProperty("Desktop")
-        public int desktop = 0;
-        @JsonProperty("Name")
-        public String name = "";
-        public String dir = "";
-        public String branch = "";
-    }
-
-    @Getter
-    @Setter
-    @Accessors(chain = true)
-    public static class ExtractConfig {
-        public String extractRegex = "";
-        public int trimBegin;
-        public int trimEnd;
-
-        public String extract(String input) {
-            return Try.of(() -> Pattern.compile(extractRegex))
-                    .mapTry(x -> x.matcher(input))
-                    .filter(x -> x.find())
-                    .mapTry(x -> x.group())
-                    .mapTry(x -> x.substring(trimBegin, x.length() - trimEnd))
-                    .getOrElse("");
+             PrintWriter out = new PrintWriter(bw);
+             FileWriter logFileWriter = new FileWriter(config.getSnapshotsFile(), true);
+             BufferedWriter logFileBufferedWriter = new BufferedWriter(logFileWriter);
+             PrintWriter logWriter = new PrintWriter(logFileBufferedWriter)) {
+            while (shouldContinue.get()) {
+                try {
+                    String snapshot = ExecUtils.executeSilently(config.getTrackerBin(), config.getTrackerArgs(), "");
+                    logWriter.print(snapshot);
+                    logWriter.println(",");
+                    Window windowWithTaskInfo = parser.parseSnapshot(config, snapshot);
+                    out.println(parser.writeValueAsString(windowWithTaskInfo));
+                } catch (Exception e) {
+                    e.printStackTrace(System.out);
+                }
+                Thread.sleep(1000l * config.getSnapshotIntervalInSeconds());
+            }
+            logWriter.flush();
+            out.flush();
         }
     }
+
+    public static Config readConfig(String[] args, ObjectMapper objectMapper) throws IOException {
+        Config config;
+        if (args.length == 1) {
+            String configAsString = Files.readAllLines(Paths.get(args[0])).stream()
+                    .collect(Collectors.joining("\n"));
+            config = objectMapper.readValue(configAsString, Config.class);
+        } else {
+            try (InputStream is = new ClassPathResource("config.json").getInputStream();) {
+                config = objectMapper.readValue(is, Config.class);
+            }
+        }
+        return config;
+    }
+
+
 }
