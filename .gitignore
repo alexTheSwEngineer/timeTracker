@@ -1,0 +1,15 @@
+.classpath
+.project
+.ht*
+*.lst
+data/*
+app/emails.txt
+app/daemons
+data/lists
+.idea
+*.iml
+target/*
+*.class
+*.log
+/pdfcorrection.ipr
+/pdfcorrection.iws
